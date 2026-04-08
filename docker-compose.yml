@@ -1,0 +1,13 @@
+services:
+  replay:
+    build: .
+    ports:
+      - "5000:5000"
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video2:/dev/video2   # câmera USB adicional (ajuste se necessário)
+    restart: unless-stopped
+    environment:
+      - BUFFER_SECONDS=10
+      - CAPTURE_FPS=20
+      - CAMERA_INDICES=0,2        # índices separados por vírgula; vazio = auto-detectar

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Replay</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --red: #e62b2b; --red-dark: #b71f1f;
+      --bg: #0a0a0a; --surface: #141414; --border: #252525;
+      --text: #f2f2f2; --muted: #666;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100svh; display: flex; flex-direction: column; align-items: center;
+    }
+
+    /* ── header ── */
+    header {
+      width: 100%; padding: 18px 20px;
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 1.4rem; font-weight: 800; letter-spacing: -.02em; }
+    .logo span { color: var(--red); }
+    .cam-count {
+      margin-left: auto; font-size: .78rem; color: var(--muted);
+      padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px;
+    }
+
+    /* ── grid ── */
+    main {
+      width: 100%; max-width: 1160px;
+      padding: 20px 16px 48px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      align-items: start;
+    }
+
+    /* ── camera section ── */
+    .cam-section {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .cam-header {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .cam-label {
+      font-size: .9rem; font-weight: 700; letter-spacing: .02em;
+    }
+
+    /* status pill */
+    .pill {
+      margin-left: auto; display: flex; align-items: center; gap: 6px;
+      font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+      padding: 4px 11px; border-radius: 20px;
+    }
+    .pill.online  { color: #4caf50; background: rgba(76,175,80,.12); }
+    .pill.offline { color: #888;    background: rgba(120,120,120,.12); }
+    .pill.loading { color: #ff9800; background: rgba(255,152,0,.12); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .dot.blink { animation: blink 1.4s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.15} }
+
+    /* video */
+    .cam-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden; position: relative;
+      aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
+    }
+    .cam-card img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .cam-placeholder {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      color: var(--muted); font-size: .85rem;
+    }
+    .cam-placeholder svg { opacity: .4; }
+
+    /* action card */
+    .action-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px 16px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .dl-btn {
+      width: 100%; padding: 16px; font-size: 1rem; font-weight: 700;
+      letter-spacing: .04em; color: #fff; background: var(--red);
+      border: none; border-radius: 10px; cursor: pointer;
+      transition: background .15s, transform .1s, opacity .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .dl-btn:hover    { background: var(--red-dark); }
+    .dl-btn:active   { transform: scale(.97); }
+    .dl-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    .cam-status {
+      font-size: .83rem; text-align: center; color: var(--muted);
+      min-height: 1.3em; transition: color .2s;
+    }
+    .cam-status.ok      { color: #4caf50; }
+    .cam-status.error   { color: #f44336; }
+    .cam-status.loading { color: #ff9800; }
+
+    .meta-row {
+      display: flex; justify-content: space-between;
+      font-size: .76rem; color: var(--muted);
+      padding-top: 6px; border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">RE<span>PLAY</span></div>
+  <div class="cam-count">{{ cameras|length }} câmera{% if cameras|length != 1 %}s{% endif %}</div>
+</header>
+
+<main>
+{% for cam in cameras %}
+  <div class="cam-section" id="section-{{ cam.id }}">
+
+    <div class="cam-header">
+      <span class="cam-label">{{ cam.label }}</span>
+      <div class="pill loading" id="pill-{{ cam.id }}">
+        <div class="dot blink"></div>
+        <span id="pill-label-{{ cam.id }}">aguardando...</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <div class="cam-placeholder" id="placeholder-{{ cam.id }}">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+        <span id="placeholder-text-{{ cam.id }}">Câmera inicializando...</span>
+      </div>
+      <img id="cam-img-{{ cam.id }}" style="display:none" alt="{{ cam.label }}" />
+    </div>
+
+    <div class="action-card">
+      <button class="dl-btn" id="dl-btn-{{ cam.id }}"
+              onclick="startDownload('{{ cam.id }}')" disabled>
+        &#9660; Baixar Replay (10s)
+      </button>
+      <div class="cam-status" id="status-{{ cam.id }}">Aguardando câmera...</div>
+      <div class="meta-row">
+        <span>Buffer</span>
+        <span id="buf-info-{{ cam.id }}">—</span>
+      </div>
+    </div>
+
+  </div>
+{% endfor %}
+</main>
+
+<script>
+  const CAM_IDS = {{ cameras | map(attribute='id') | list | tojson }};
+
+  // ── Per-camera stream init ─────────────────────────────────────────────────
+  function initCamera(camId) {
+    const img         = document.getElementById('cam-img-'          + camId);
+    const placeholder = document.getElementById('placeholder-'      + camId);
+    const pill        = document.getElementById('pill-'             + camId);
+    const pillLabel   = document.getElementById('pill-label-'       + camId);
+    const dlBtn       = document.getElementById('dl-btn-'           + camId);
+    const statusEl    = document.getElementById('status-'           + camId);
+
+    let ready = false;
+
+    (function probe() {
+      const p = new Image();
+      p.onload = () => {
+        if (ready) return;
+        ready = true;
+        img.src = '/stream/' + camId;
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        pill.className = 'pill online';
+        pill.querySelector('.dot').classList.remove('blink');
+        pillLabel.textContent = 'AO VIVO';
+        dlBtn.disabled = false;
+        statusEl.className = '';
+        statusEl.textContent = 'Câmera ativa. Pronto para gravar.';
+      };
+      p.onerror = () => { if (!ready) setTimeout(probe, 700); };
+      p.src = '/snapshot/' + camId + '?' + Date.now();
+    })();
+  }
+
+  CAM_IDS.forEach(initCamera);
+
+  // ── Health polling — buffer info para todas as câmeras ────────────────────
+  async function checkHealth() {
+    try {
+      const r = await fetch('/health');
+      if (!r.ok) return;
+      const data = await r.json();
+      for (const [camId, info] of Object.entries(data)) {
+        const buf = document.getElementById('buf-info-' + camId);
+        if (buf && info.frames > 0)
+          buf.textContent = `${info.duration_s}s — ${info.frames} frames`;
+        if (info.error) {
+          const pt = document.getElementById('placeholder-text-' + camId);
+          const pill = document.getElementById('pill-' + camId);
+          const pillLabel = document.getElementById('pill-label-' + camId);
+          if (pt) pt.textContent = info.error;
+          if (pill) pill.className = 'pill offline';
+          if (pillLabel) pillLabel.textContent = 'offline';
+        }
+      }
+    } catch (_) {}
+  }
+  setInterval(checkHealth, 2000);
+  checkHealth();
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  function startDownload(camId) {
+    const dlBtn   = document.getElementById('dl-btn-'  + camId);
+    const statusEl = document.getElementById('status-' + camId);
+    dlBtn.disabled = true;
+    statusEl.className = 'cam-status loading';
+    statusEl.textContent = 'Gerando vídeo...';
+
+    window.location.href = '/download/' + camId;
+
+    setTimeout(() => {
+      dlBtn.disabled = false;
+      statusEl.className = 'cam-status ok';
+      statusEl.textContent = '✔ Download iniciado!';
+    }, 5000);
+  }
+</script>
+
+</body>
+</html>
