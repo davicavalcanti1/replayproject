@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>{% block title %}Replay{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --red: #e62b2b; --red-dark: #b71f1f; --red-glow: rgba(230,43,43,.15);
+      --bg: #0a0a0a; --surface: #141414; --surface-hover: #1a1a1a;
+      --border: #252525; --border-light: #333;
+      --text: #f2f2f2; --text-secondary: #aaa; --muted: #666;
+      --green: #4caf50; --orange: #ff9800; --blue: #2196f3;
+      --radius: 14px; --radius-sm: 10px;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100svh; line-height: 1.5;
+    }
+    a { color: var(--red); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Navbar ── */
+    .navbar {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 24px;
+      background: rgba(10,10,10,.92); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; cursor: pointer; }
+    .nav-logo span { color: var(--red); }
+    .nav-links { display: flex; gap: 6px; margin-left: 20px; }
+    .nav-links a {
+      color: var(--text-secondary); font-size: .85rem; font-weight: 500;
+      padding: 6px 14px; border-radius: 8px; transition: all .15s;
+    }
+    .nav-links a:hover, .nav-links a.active {
+      color: var(--text); background: var(--surface); text-decoration: none;
+    }
+    .nav-spacer { flex: 1; }
+    .nav-credits {
+      display: flex; align-items: center; gap: 6px;
+      font-size: .82rem; font-weight: 600; color: var(--green);
+      padding: 5px 14px; border-radius: 20px;
+      background: rgba(76,175,80,.1); border: 1px solid rgba(76,175,80,.2);
+    }
+    .nav-user { font-size: .82rem; color: var(--text-secondary); }
+    .nav-btn {
+      font-size: .8rem; font-weight: 600; color: var(--muted);
+      padding: 6px 14px; border-radius: 8px;
+      background: transparent; border: 1px solid var(--border);
+      cursor: pointer; transition: all .15s; text-decoration: none;
+    }
+    .nav-btn:hover { color: var(--text); border-color: var(--border-light); text-decoration: none; }
+
+    /* ── Flash ── */
+    .flash-container { padding: 12px 24px 0; max-width: 1240px; margin: 0 auto; }
+    .flash {
+      padding: 12px 18px; border-radius: var(--radius-sm);
+      font-size: .88rem; margin-bottom: 8px; animation: slideDown .3s ease;
+      background: rgba(33,150,243,.12); color: var(--blue); border: 1px solid rgba(33,150,243,.2);
+    }
+    @keyframes slideDown { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
+
+    /* ── Container ── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 20px 48px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 24px; font-size: .92rem; font-weight: 700;
+      border: none; border-radius: var(--radius-sm); cursor: pointer;
+      transition: all .15s; -webkit-tap-highlight-color: transparent;
+    }
+    .btn-red { background: var(--red); color: #fff; }
+    .btn-red:hover { background: var(--red-dark); }
+    .btn-red:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-outline { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
+    .btn-outline:hover { color: var(--text); border-color: var(--border-light); background: var(--surface); }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-green:hover { background: #43a047; }
+    .btn-sm { padding: 8px 16px; font-size: .82rem; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden; transition: border-color .2s;
+    }
+    .card:hover { border-color: var(--border-light); }
+    .card-body { padding: 18px; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px;
+      max-width: 420px; width: 90%; animation: modalIn .2s ease;
+    }
+    @keyframes modalIn { from { opacity:0; transform:scale(.95); } }
+    .modal h2 { font-size: 1.2rem; margin-bottom: 8px; }
+    .modal p { color: var(--text-secondary); font-size: .9rem; margin-bottom: 20px; }
+
+    /* ── Utilities ── */
+    .text-muted { color: var(--muted); }
+    .text-sm { font-size: .82rem; }
+    .text-center { text-align: center; }
+    .mt-4 { margin-top: 16px; }
+    .w-full { width: 100%; }
+
+    .status-msg {
+      padding: 12px 18px; border-radius: var(--radius-sm);
+      font-size: .88rem; text-align: center; margin-bottom: 12px;
+      animation: slideDown .3s ease;
+    }
+    .status-success { background: rgba(76,175,80,.12); color: var(--green); border: 1px solid rgba(76,175,80,.2); }
+    .status-error   { background: rgba(244,67,54,.12); color: #f44336; border: 1px solid rgba(244,67,54,.2); }
+    .status-loading { background: rgba(255,152,0,.12); color: var(--orange); border: 1px solid rgba(255,152,0,.2); }
+
+    @media (max-width: 640px) {
+      .navbar { padding: 12px 16px; gap: 10px; flex-wrap: wrap; }
+      .nav-links { display: none; }
+      .container { padding: 16px 12px 32px; }
+    }
+
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+
+{% if current_user %}
+<nav class="navbar">
+  <a class="nav-logo" href="/" style="text-decoration:none;color:var(--text)">RE<span>PLAY</span></a>
+  <div class="nav-links">
+    {% if current_user.is_admin %}
+      <a href="{{ url_for('admin_page') }}" class="{% if request.endpoint == 'admin_page' %}active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('admin_users') }}" class="{% if request.endpoint == 'admin_users' %}active{% endif %}">Usuarios</a>
+      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Localidades</a>
+    {% else %}
+      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Localidades</a>
+    {% endif %}
+  </div>
+  <div class="nav-spacer"></div>
+  {% if not current_user.is_admin %}
+  <div class="nav-credits" id="nav-credits">&#9733; {{ current_user.credits }} creditos</div>
+  {% endif %}
+  <span class="nav-user">{{ current_user.name }}</span>
+  <a href="{{ url_for('logout') }}" class="nav-btn">Sair</a>
+</nav>
+{% endif %}
+
+{% with messages = get_flashed_messages() %}
+{% if messages %}
+<div class="flash-container">
+  {% for msg in messages %}
+  <div class="flash">{{ msg }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>

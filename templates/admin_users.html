@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Usuarios — Replay Admin{% endblock %}
+
+{% block extra_css %}
+.users-header { margin-bottom: 24px; }
+.users-title { font-size: 1.5rem; font-weight: 800; }
+.users-sub { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+
+.users-table-wrapper {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow-x: auto;
+}
+.users-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.users-table th {
+  text-align: left; padding: 14px 18px;
+  font-size: .76rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted);
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.users-table td {
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.users-table tr:last-child td { border-bottom: none; }
+.users-table tr:hover td { background: var(--surface-hover); }
+.user-name-cell { font-weight: 600; }
+.user-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 10px;
+  font-size: .72rem; font-weight: 700;
+}
+.badge-admin { background: rgba(230,43,43,.1); color: var(--red); }
+.badge-user { background: rgba(33,150,243,.1); color: var(--blue); }
+.credits-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 10px;
+  font-size: .78rem; font-weight: 600;
+  background: rgba(76,175,80,.1); color: var(--green);
+}
+.sex-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 10px;
+  font-size: .75rem; font-weight: 600;
+  background: rgba(150,150,150,.1); color: var(--text-secondary);
+}
+
+.empty-users {
+  text-align: center; padding: 48px; color: var(--muted);
+}
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="users-header">
+    <h1 class="users-title">Usuarios Cadastrados</h1>
+    <p class="users-sub">{{ users|length }} usuarios no sistema</p>
+  </div>
+
+  <div class="users-table-wrapper">
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Telefone</th>
+          <th>Sexo</th>
+          <th>Nascimento</th>
+          <th>Creditos</th>
+          <th>Tipo</th>
+          <th>Cadastro</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for uid, u in users.items() %}
+        <tr>
+          <td class="user-name-cell">{{ u.name }}</td>
+          <td>{{ u.phone }}</td>
+          <td>
+            <span class="sex-badge">
+              {% if u.sex == 'M' %}Masculino{% elif u.sex == 'F' %}Feminino{% else %}Outro{% endif %}
+            </span>
+          </td>
+          <td>{{ u.dob }}</td>
+          <td><span class="credits-badge">&#9733; {{ u.credits }}</span></td>
+          <td>
+            {% if u.is_admin %}
+              <span class="user-badge badge-admin">Admin</span>
+            {% else %}
+              <span class="user-badge badge-user">Usuario</span>
+            {% endif %}
+          </td>
+          <td class="text-muted">{{ u.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

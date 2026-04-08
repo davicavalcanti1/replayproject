@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Cadastro — Replay{% endblock %}
+
+{% block extra_css %}
+.register-page {
+  min-height: 100svh; display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(230,43,43,.06) 0%, transparent 60%);
+}
+.register-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 36px 34px;
+  width: 100%; max-width: 460px;
+}
+.register-logo { text-align: center; font-size: 1.9rem; font-weight: 800; letter-spacing: -.03em; margin-bottom: 4px; }
+.register-logo span { color: var(--red); }
+.register-sub { text-align: center; color: var(--muted); font-size: .88rem; margin-bottom: 24px; }
+.bonus-badge {
+  display: block; width: fit-content; margin: 0 auto 28px;
+  background: rgba(76,175,80,.1); color: var(--green);
+  border: 1px solid rgba(76,175,80,.2);
+  padding: 8px 18px; border-radius: 20px;
+  font-size: .84rem; font-weight: 600; text-align: center;
+}
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: .82rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.form-input, .form-select {
+  width: 100%; padding: 13px 16px; font-size: .95rem;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  outline: none; transition: border-color .2s;
+  font-family: inherit;
+}
+.form-input:focus, .form-select:focus { border-color: var(--red); }
+.form-input::placeholder { color: var(--muted); }
+.form-select option { background: var(--bg); color: var(--text); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.terms-group {
+  display: flex; align-items: flex-start; gap: 10px;
+  margin: 22px 0 26px; font-size: .84rem; color: var(--text-secondary); line-height: 1.5;
+}
+.terms-group input[type="checkbox"] { margin-top: 3px; accent-color: var(--red); width: 18px; height: 18px; flex-shrink: 0; }
+.register-btn { width: 100%; padding: 15px; font-size: 1rem; }
+.register-footer { text-align: center; margin-top: 22px; font-size: .88rem; color: var(--muted); }
+{% endblock %}
+
+{% block content %}
+<div class="register-page">
+  <div class="register-card">
+    <div class="register-logo">RE<span>PLAY</span></div>
+    <p class="register-sub">Crie sua conta</p>
+    <div class="bonus-badge">&#9733; Ganhe 5 creditos gratis ao se cadastrar!</div>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for msg in messages %}
+      <div class="status-msg status-error" style="margin-bottom:16px">{{ msg }}</div>
+      {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+      <div class="form-group">
+        <label class="form-label">Nome completo</label>
+        <input class="form-input" name="name" placeholder="Seu nome completo" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Telefone (sera seu login)</label>
+        <input class="form-input" name="phone" type="tel" placeholder="(11) 99988-7766" required />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Sexo</label>
+          <select class="form-select" name="sex" required>
+            <option value="" disabled selected>Selecione</option>
+            <option value="M">Masculino</option>
+            <option value="F">Feminino</option>
+            <option value="O">Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data de nascimento</label>
+          <input class="form-input" name="dob" type="date" required />
+        </div>
+      </div>
+      <div class="terms-group">
+        <input type="checkbox" name="terms" id="terms" />
+        <label for="terms">
+          Li e concordo com os <a href="#" onclick="return false">Termos de Uso</a>
+          e <a href="#" onclick="return false">Politica de Privacidade</a> da plataforma Replay.
+          Autorizo o uso dos meus dados conforme descrito.
+        </label>
+      </div>
+      <button type="submit" class="btn btn-red register-btn">Criar conta</button>
+    </form>
+    <p class="register-footer">
+      Ja tem conta? <a href="{{ url_for('login') }}">Fazer login</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

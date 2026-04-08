@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Replay Admin{% endblock %}
+
+{% block extra_css %}
+.admin-header { margin-bottom: 24px; }
+.admin-title { font-size: 1.5rem; font-weight: 800; }
+.admin-sub { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+
+.admin-stats { display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap; }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px 24px; flex: 1; min-width: 150px;
+}
+.stat-value { font-size: 1.9rem; font-weight: 800; }
+.stat-value.green { color: var(--green); }
+.stat-value.blue { color: var(--blue); }
+.stat-value.orange { color: var(--orange); }
+.stat-label { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
+.cameras-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 20px;
+}
+@media (max-width: 480px) { .cameras-grid { grid-template-columns: 1fr; } }
+
+.cam-feed {
+  aspect-ratio: 16/9; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.cam-feed img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam-feed-placeholder {
+  color: var(--muted); font-size: .85rem;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.cam-feed-placeholder svg { opacity: .3; }
+.cam-bottom {
+  padding: 14px 18px; display: flex; align-items: center; justify-content: space-between;
+}
+.cam-name { font-size: .92rem; font-weight: 700; }
+.cam-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 12px; font-size: .72rem; font-weight: 700;
+}
+.cam-pill.online  { background: rgba(76,175,80,.1); color: var(--green); }
+.cam-pill.loading { background: rgba(255,152,0,.1); color: var(--orange); }
+.cam-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="admin-header">
+    <h1 class="admin-title">Dashboard</h1>
+    <p class="admin-sub">Monitoramento em tempo real</p>
+  </div>
+
+  <div class="admin-stats">
+    <div class="stat-card">
+      <div class="stat-value green">{{ cameras|length }}</div>
+      <div class="stat-label">Cameras ativas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value blue">{{ users_count }}</div>
+      <div class="stat-label">Usuarios cadastrados</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value orange">{{ clips_count }}</div>
+      <div class="stat-label">Replays gerados</div>
+    </div>
+  </div>
+
+  <div class="cameras-grid">
+    {% for cam in cameras %}
+    <div class="card">
+      <div class="cam-feed">
+        <div class="cam-feed-placeholder" id="ph-{{ cam.id }}">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+          </svg>
+          <span>Conectando...</span>
+        </div>
+        <img id="feed-{{ cam.id }}" style="display:none" alt="{{ cam.label }}" />
+      </div>
+      <div class="cam-bottom">
+        <span class="cam-name">{{ cam.label }}</span>
+        <span class="cam-pill loading" id="pill-{{ cam.id }}">
+          <span class="cam-dot"></span>
+          <span id="pill-text-{{ cam.id }}">aguardando</span>
+        </span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const CAMS = {{ cameras | tojson }};
+
+  CAMS.forEach(cam => {
+    const img  = document.getElementById('feed-' + cam.id);
+    const ph   = document.getElementById('ph-' + cam.id);
+    const pill = document.getElementById('pill-' + cam.id);
+    const text = document.getElementById('pill-text-' + cam.id);
+
+    (function probe() {
+      const p = new Image();
+      p.onload = () => {
+        img.src = '/stream/' + cam.id;
+        img.style.display = 'block';
+        ph.style.display = 'none';
+        pill.className = 'cam-pill online';
+        text.textContent = 'ao vivo';
+      };
+      p.onerror = () => setTimeout(probe, 800);
+      p.src = '/snapshot/' + cam.id + '?' + Date.now();
+    })();
+  });
+</script>
+{% endblock %}

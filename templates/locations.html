@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Localidades — Replay{% endblock %}
+
+{% block extra_css %}
+.page-header { margin-bottom: 28px; }
+.page-title { font-size: 1.5rem; font-weight: 800; }
+.page-sub { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+.locations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+.loc-card { cursor: pointer; transition: all .2s; }
+.loc-card:hover { border-color: var(--red); transform: translateY(-2px); }
+.loc-thumb {
+  aspect-ratio: 16/9; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; position: relative;
+}
+.loc-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.loc-thumb-placeholder {
+  color: var(--muted); font-size: .85rem;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  position: absolute; inset: 0; align-items: center; justify-content: center;
+}
+.loc-thumb-placeholder svg { opacity: .3; }
+.loc-info { padding: 16px 18px; }
+.loc-name { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+.loc-meta { display: flex; align-items: center; gap: 10px; font-size: .8rem; }
+.loc-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 12px; font-size: .75rem; font-weight: 600;
+}
+.loc-badge-live { background: rgba(76,175,80,.1); color: var(--green); }
+.loc-badge-clips { background: rgba(33,150,243,.1); color: var(--blue); }
+.loc-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.empty-state {
+  text-align: center; padding: 60px 20px; color: var(--muted);
+  grid-column: 1/-1;
+}
+.empty-state svg { opacity: .2; margin-bottom: 16px; }
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <h1 class="page-title">Localidades</h1>
+    <p class="page-sub">Selecione uma quadra para assistir aos replays</p>
+  </div>
+
+  <div class="locations-grid">
+    {% if locations %}
+      {% for loc in locations %}
+      <div class="card loc-card" onclick="window.location='{{ url_for('location_detail', cam_id=loc.id) }}'">
+        <div class="loc-thumb">
+          <img src="/snapshot/{{ loc.id }}" alt="{{ loc.name }}"
+               onerror="this.style.display='none'; this.parentElement.querySelector('.loc-thumb-placeholder').style.display='flex';" />
+          <div class="loc-thumb-placeholder" style="display:none;">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+            </svg>
+            <span>Camera offline</span>
+          </div>
+        </div>
+        <div class="loc-info">
+          <div class="loc-name">{{ loc.name }}</div>
+          <div class="loc-meta">
+            <span class="loc-badge loc-badge-live">
+              <span class="loc-dot"></span> Ao vivo
+            </span>
+            <span class="loc-badge loc-badge-clips">{{ loc.clips_count }} clipes</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+          <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+        </svg>
+        <p>Nenhuma localidade disponivel no momento.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
