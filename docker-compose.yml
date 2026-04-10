@@ -1,13 +1,22 @@
 services:
-  replay:
-    build: .
+  backend:
+    build: ./backend
     ports:
       - "5000:5000"
     devices:
       - /dev/video0:/dev/video0
-      - /dev/video2:/dev/video2   # câmera USB adicional (ajuste se necessário)
+      - /dev/video2:/dev/video2
     restart: unless-stopped
     environment:
       - BUFFER_SECONDS=10
       - CAPTURE_FPS=20
-      - CAMERA_INDICES=0,2        # índices separados por vírgula; vazio = auto-detectar
+      - CAMERA_INDICES=0,2
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:5000

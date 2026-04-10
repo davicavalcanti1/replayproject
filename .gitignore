@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Clips (generated data)
+backend/clips/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.sw?
+
+# Logs
+*.log
+npm-debug.log*
