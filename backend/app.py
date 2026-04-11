@@ -720,7 +720,8 @@ def generate_clip(cam_id):
     })
 
 
-@app.route("/api/trigger-all", methods=["POST"])
+@app.route("/api/trigger-all", methods=["POST", "GET"])
+@app.route("/botao", methods=["GET"])
 def trigger_all():
     """Hardware trigger endpoint — called by the ESP8266 button.
 
