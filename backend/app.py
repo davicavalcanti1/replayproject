@@ -53,6 +53,11 @@ os.makedirs(CLIPS_DIR, exist_ok=True)
 CAMERA_USER     = os.environ.get("CAMERA_USER", "admin")
 CAMERA_PASSWORD = os.environ.get("CAMERA_PASSWORD", "admin")
 
+# ── Hardware trigger (ESP8266 button) ────────────────────────────────────────
+# Set TRIGGER_TOKEN in .env or environment to require authentication.
+# If empty, the /api/trigger-all endpoint accepts requests without a token.
+TRIGGER_TOKEN = os.environ.get("TRIGGER_TOKEN", "")
+
 _BACKENDS = [cv2.CAP_DSHOW, cv2.CAP_MSMF, 0] if platform.system() == "Windows" else [0]
 _BACKEND_NAMES = {cv2.CAP_DSHOW: "DSHOW", cv2.CAP_MSMF: "MSMF", 0: "AUTO"}
 
@@ -631,21 +636,21 @@ def location_detail(cam_id):
     )
 
 
-@app.route("/generate-clip/<cam_id>", methods=["POST"])
-@login_required
-def generate_clip(cam_id):
+def _do_generate_clip(cam_id: str, triggered_by: str = "system") -> dict:
+    """Generate a replay clip for *cam_id* and persist it in clips_db.
+
+    Returns a dict with keys:
+      - on success: {"ok": True, "clip": clip_info, "download_url": ..., "download_name": ...}
+      - on failure: {"ok": False, "error": "<reason>"}
+    """
     cam = cameras.get(cam_id)
     if cam is None:
-        return jsonify({"error": "camera_not_found"}), 404
-
-    user = users_db[session["user"]]
-    if not user.get("is_admin") and user["credits"] <= 0:
-        return jsonify({"error": "no_credits", "credits": 0}), 402
+        return {"ok": False, "error": "camera_not_found"}
 
     with cam["buffer_lock"]:
         snapshot_frames = list(cam["buffer"])
     if not snapshot_frames:
-        return jsonify({"error": "buffer_empty"}), 503
+        return {"ok": False, "error": "buffer_empty"}
 
     duration = (snapshot_frames[-1][0] - snapshot_frames[0][0]) if len(snapshot_frames) > 1 else 0.0
     fps = len(snapshot_frames) / duration if duration > 0 else float(CAPTURE_FPS)
@@ -659,23 +664,20 @@ def generate_clip(cam_id):
     ok = _encode_ffmpeg(snapshot_frames, fps, clip_path) or \
          _encode_cv2(snapshot_frames, fps, clip_path)
     if not ok:
-        return jsonify({"error": "encoding_failed"}), 500
+        return {"ok": False, "error": "encoding_failed"}
 
     mid = len(snapshot_frames) // 2
     mid_frame = cv2.imdecode(np.frombuffer(snapshot_frames[mid][1], np.uint8), cv2.IMREAD_COLOR)
     if mid_frame is not None:
         cv2.imwrite(thumb_path, mid_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
 
-    if not user.get("is_admin"):
-        user["credits"] -= 1
-
     clip_info = {
         "id":        clip_id,
         "filename":  f"{clip_id}.mp4",
         "thumb":     f"{clip_id}_thumb.jpg",
         "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "user":      session["user"],
-        "user_name": user["name"],
+        "user":      triggered_by,
+        "user_name": triggered_by,
         "duration":  round(duration, 1),
     }
     clips_db.setdefault(cam_id, []).insert(0, clip_info)
@@ -683,12 +685,79 @@ def generate_clip(cam_id):
     loc_name = _location_name(cam_id).replace(" ", "_").replace("—", "").replace("__", "_")
     download_name = f"replay_{loc_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
+    return {
+        "ok":            True,
+        "clip":          clip_info,
+        "download_url":  f"/clips/{cam_id}/{clip_id}.mp4",
+        "download_name": download_name,
+    }
+
+
+@app.route("/generate-clip/<cam_id>", methods=["POST"])
+@login_required
+def generate_clip(cam_id):
+    user = users_db[session["user"]]
+    if not user.get("is_admin") and user["credits"] <= 0:
+        return jsonify({"error": "no_credits", "credits": 0}), 402
+
+    result = _do_generate_clip(cam_id, triggered_by=session["user"])
+
+    if not result["ok"]:
+        status = 404 if result["error"] == "camera_not_found" else \
+                 503 if result["error"] == "buffer_empty" else 500
+        return jsonify({"error": result["error"]}), status
+
+    if not user.get("is_admin"):
+        user["credits"] -= 1
+
     return jsonify({
         "success":       True,
-        "clip":          clip_info,
-        "download_url":  url_for("serve_clip", cam_id=cam_id, filename=f"{clip_id}.mp4"),
-        "download_name": download_name,
+        "clip":          result["clip"],
+        "download_url":  url_for("serve_clip", cam_id=cam_id,
+                                 filename=result["clip"]["filename"]),
+        "download_name": result["download_name"],
         "credits":       user["credits"],
+    })
+
+
+@app.route("/api/trigger-all", methods=["POST"])
+def trigger_all():
+    """Hardware trigger endpoint — called by the ESP8266 button.
+
+    Generates a replay clip for every active camera simultaneously.
+    Authentication: if TRIGGER_TOKEN env var is set, the request must carry
+    the header  X-Trigger-Token: <token>  (or Bearer token in Authorization).
+    """
+    if TRIGGER_TOKEN:
+        provided = (
+            request.headers.get("X-Trigger-Token") or
+            request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        )
+        if provided != TRIGGER_TOKEN:
+            return jsonify({"error": "unauthorized"}), 401
+
+    active_ids = [cam_id for cam_id, cam in cameras.items() if cam.get("active")]
+    if not active_ids:
+        return jsonify({"ok": False, "error": "no_active_cameras"}), 503
+
+    results = {}
+    threads = []
+
+    def _worker(cam_id):
+        results[cam_id] = _do_generate_clip(cam_id, triggered_by="hardware_button")
+
+    for cam_id in active_ids:
+        t = threading.Thread(target=_worker, args=(cam_id,), daemon=True)
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
+
+    return jsonify({
+        "ok":      True,
+        "trigger": "hardware_button",
+        "clips":   results,
     })
 
 
