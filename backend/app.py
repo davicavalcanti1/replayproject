@@ -1077,6 +1077,26 @@ def api_list_ip_cameras():
 
 # ── React Frontend extended API ──────────────────────────────────────────────
 
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """JSON login endpoint for the React frontend — sets session cookie and returns user info."""
+    data     = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    user     = users_db.get(username)
+    if not user or user["password"] != password:
+        return jsonify({"error": "Usuário ou senha incorretos."}), 401
+    session["user"] = username
+    return jsonify({
+        "username":   username,
+        "name":       user["name"],
+        "phone":      user["phone"],
+        "is_admin":   user.get("is_admin", False),
+        "credits":    user.get("credits"),
+        "created_at": user.get("created_at"),
+    })
+
+
 @app.route("/api/me")
 def api_me():
     """Return current logged-in user info (no sensitive data)."""

@@ -121,6 +121,10 @@ export default function ClipGallery({ camId }) {
   useEffect(() => {
     setLoading(true)
     fetchClips().finally(() => setLoading(false))
+
+    // Poll for new clips every 5s (picks up hardware button triggers)
+    const interval = setInterval(fetchClips, 5000)
+    return () => clearInterval(interval)
   }, [camId, fetchClips])
 
   const handleGenerate = async () => {

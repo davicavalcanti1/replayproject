@@ -33,18 +33,16 @@ export function AuthProvider({ children }) {
    * Throws if credentials are wrong.
    */
   const login = async (username, password) => {
-    // Step 1 — let Flask authenticate and set the session cookie
-    await fetch('/login', {
-      method:   'POST',
-      headers:  { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body:     new URLSearchParams({ username, password }),
-      redirect: 'manual',   // don't follow the 302 redirect; cookie IS stored
+    const res = await fetch('/api/login', {
+      method:      'POST',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ username, password }),
+      credentials: 'include',
     })
-
-    // Step 2 — confirm the session is active
-    const u = await checkSession()
-    if (!u) throw new Error('Usuário ou senha incorretos.')
-    return u
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Usuário ou senha incorretos.')
+    setUser(data)
+    return data
   }
 
   const logout = async () => {
