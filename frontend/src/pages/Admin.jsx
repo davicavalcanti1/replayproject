@@ -69,11 +69,25 @@ function CameraRow({ cam, onAction }) {
       } else if (action === 'resume') {
         await jsonPost(`/api/admin/cameras/${cam.cam_id}/resume`)
       } else if (action === 'remove') {
-        if (!confirm(`Remover câmera "${cam.name}"? Essa ação é reversível só re-adicionando manualmente.`)) {
+        // diálogo em 2 etapas: confirmar + escolher se apaga clipes
+        const name = cam.name || cam.label || cam.cam_id
+        if (!confirm(`Remover a câmera "${name}"?\n\nVai parar a captura e sumir com ela do painel. Pra voltar, você precisa adicioná-la manualmente.`)) {
           setBusy(false); return
         }
-        const r = await fetch(`/api/remove-camera/${cam.cam_id}`, { method: 'DELETE' })
-        if (!r.ok) throw new Error(await r.text())
+        const alsoDelete = confirm(
+          `Apagar TAMBÉM os clipes gravados dessa câmera no disco?\n\n` +
+          `[OK]      — remove câmera + apaga os .mp4 (IRREVERSÍVEL)\n` +
+          `[Cancel]  — remove só a câmera, mantém os clipes no disco`
+        )
+        const qs = alsoDelete ? '?delete_clips=1' : ''
+        const r = await fetch(`/api/admin/cameras/${cam.cam_id}${qs}`, {
+          method: 'DELETE',
+        })
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`)
+        if (alsoDelete && j.files_deleted != null) {
+          alert(`Câmera removida. ${j.files_deleted} arquivo(s) apagado(s) do disco.`)
+        }
       }
       onAction()
     } catch (e) {

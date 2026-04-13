@@ -1464,6 +1464,71 @@ def api_admin_resume_camera(cam_id):
     return jsonify({"ok": True, "cam_id": cam_id, "resumed": True})
 
 
+@app.route("/api/admin/cameras/<cam_id>", methods=["DELETE"])
+def api_admin_remove_camera(cam_id):
+    """Remove a câmera do sistema (admin-only).
+
+    Query params:
+        delete_clips=1   → apaga também os .mp4 e .jpg do disco (irreversível)
+
+    - Pára a thread de captura
+    - Remove do dict de câmeras
+    - Remove do LOCATION_NAMES
+    - Remove clips_db[cam_id] (registros em memória)
+    - Opcionalmente apaga arquivos do disco
+    """
+    err = _json_admin_only()
+    if err: return err
+
+    cam = cameras.get(cam_id)
+    if cam is None:
+        return jsonify({"error": "camera_not_found"}), 404
+
+    delete_clips = request.args.get("delete_clips", "0") in ("1", "true", "yes")
+
+    # 1. pára thread + reader
+    cam["stop"] = True
+    reader = cam.pop("_reader", None)
+    if reader is not None:
+        try: reader.stop()
+        except Exception: pass
+
+    # 2. remove registros em memória
+    name = cam.get("name") or _location_name(cam_id)
+    cameras.pop(cam_id, None)
+    LOCATION_NAMES.pop(cam_id, None)
+    clips_removed = len(clips_db.pop(cam_id, []))
+
+    # 3. opcional: apaga arquivos do disco
+    files_deleted = 0
+    if delete_clips:
+        cam_clips_dir = os.path.join(CLIPS_DIR, cam_id)
+        if os.path.isdir(cam_clips_dir):
+            try:
+                import shutil
+                for entry in os.listdir(cam_clips_dir):
+                    try:
+                        os.remove(os.path.join(cam_clips_dir, entry))
+                        files_deleted += 1
+                    except Exception:
+                        pass
+                try: os.rmdir(cam_clips_dir)
+                except Exception: pass
+            except Exception as e:
+                print(f"[admin] erro limpando clipes da cam {cam_id}: {e}", flush=True)
+
+    print(f"[admin] Câmera {cam_id} ({name}) removida "
+          f"(clips_em_memoria={clips_removed}, arquivos_apagados={files_deleted})",
+          flush=True)
+    return jsonify({
+        "ok":              True,
+        "cam_id":          cam_id,
+        "name":            name,
+        "clips_removed":   clips_removed,
+        "files_deleted":   files_deleted if delete_clips else None,
+    })
+
+
 # ── Admin: controle de sistema (reiniciar / desligar / reboot PC) ───────────
 
 @app.route("/api/admin/system", methods=["GET"])
