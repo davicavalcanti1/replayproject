@@ -334,6 +334,72 @@ def _validate_new_camera(cap, idx: int) -> bool:
     return True
 
 
+class _LatestFrameReader:
+    """Thread dedicada a ler frames da câmera IP o mais rápido possível
+    e guardar SEMPRE só o frame mais recente. Elimina o acúmulo de delay
+    que acontece quando o consumidor (capture_loop) é mais lento que
+    a taxa de chegada do stream RTSP.
+
+    O truque é simples mas mata o delay por completo: enquanto a thread
+    estiver fazendo cap.read() continuamente, o socket RTSP é drenado
+    frame a frame sem pausa. Quem consome via .latest() pega o que tiver
+    de mais fresco no momento — se ele consome lento, o reader descarta
+    os antigos sozinho.
+    """
+    def __init__(self, cap):
+        self.cap = cap
+        self._lock = threading.Lock()
+        self._ret = False
+        self._frame = None
+        self._frames_read = 0
+        self._frames_dropped = 0
+        self._last_read_ts = 0.0
+        self._stop = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop:
+            try:
+                ret, frame = self.cap.read()
+            except cv2.error:
+                ret, frame = False, None
+            now = time.time()
+            with self._lock:
+                if self._frame is not None and ret:
+                    # frame anterior ainda não foi consumido — descartamos
+                    self._frames_dropped += 1
+                self._ret   = ret
+                self._frame = frame
+                self._last_read_ts = now
+                if ret:
+                    self._frames_read += 1
+            if not ret:
+                # evita tight-loop quando a câmera caiu
+                time.sleep(0.1)
+
+    def latest(self):
+        """Pega o frame mais recente e marca como consumido.
+        Retorna (ret, frame) — frame pode ser None se ainda não tem."""
+        with self._lock:
+            ret, frame = self._ret, self._frame
+            self._frame = None  # marca como consumido
+            return ret, frame
+
+    def stats(self):
+        with self._lock:
+            return {
+                "read":     self._frames_read,
+                "dropped":  self._frames_dropped,
+                "last_ts":  self._last_read_ts,
+            }
+
+    def stop(self):
+        self._stop = True
+        try: self._thread.join(timeout=1.5)
+        except Exception: pass
+
+
 def capture_loop(cam_id: str, cap: cv2.VideoCapture):
     cam = cameras.get(cam_id)
     if cam is None:
@@ -343,9 +409,8 @@ def capture_loop(cam_id: str, cap: cv2.VideoCapture):
     backend = cam["backend"]
     cam["active"] = True
     is_ip = cam.get("ip") is not None
-    # Câmeras IP: mesmo FPS das USB para replay fluido
     effective_fps = CAPTURE_FPS
-    print(f"[cam{cam_id}] Captura iniciada ({'IP ' + cam['ip'] if is_ip else 'USB'}, {effective_fps}fps)", flush=True)
+    print(f"[cam{cam_id}] Captura iniciada ({'IP ' + cam['ip'] if is_ip else 'USB'}, {effective_fps}fps target)", flush=True)
     interval = 1.0 / effective_fps
 
     try:
@@ -360,30 +425,40 @@ def capture_loop(cam_id: str, cap: cv2.VideoCapture):
 
 
 def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
-    # Câmeras IP: minimizar buffer interno do OpenCV para evitar delay
+    # Câmera IP: usa thread reader dedicada (elimina delay de buffer).
+    # Câmera USB: lê direto (USB não tem problema de buffer RTSP).
+    reader = None
     if is_ip:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        reader = _LatestFrameReader(cap)
+        cam["_reader"] = reader  # guarda pra shutdown e stats
+        # warmup — aguarda o reader pegar algo
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            r, f = reader.latest()
+            if r and f is not None:
+                break
+            time.sleep(0.05)
+
+    last_stats_log = time.time()
 
     while not cam["stop"]:
         t0 = time.time()
         try:
             if is_ip:
-                # Drenar agressivamente o buffer RTSP: grab() várias vezes pra
-                # descartar frames antigos e ficar SÓ com o mais recente.
-                # Isso elimina o delay acumulado (câmera IP passa a ser quase 0).
-                # Timeout implícito: 2 grabs suficientes pra acompanhar 30fps
-                # num loop que rota em ~interval; grabs extras simplesmente
-                # não farão nada porque o socket não terá frame novo.
-                grabbed_any = False
-                for _ in range(4):
-                    if cap.grab():
-                        grabbed_any = True
-                    else:
-                        break
-                if grabbed_any:
-                    ret, frame = cap.retrieve()
-                else:
-                    ret, frame = False, None
+                # Pega o frame mais recente do reader (não bloqueia).
+                ret, frame = reader.latest()
+                if not ret or frame is None:
+                    # Ainda não tem frame novo desde o último consumo.
+                    # Pode ser porque o loop é mais rápido que o stream,
+                    # ou a câmera caiu. Se for só rapidez, dorme um pouco
+                    # e tenta de novo sem marcar como erro.
+                    last_read = reader.stats()["last_ts"]
+                    if last_read > 0 and time.time() - last_read < 2.0:
+                        time.sleep(interval * 0.5)
+                        continue
+                    # passou muito tempo sem frame → tratar como desconexão
+                    ret = False
             else:
                 ret, frame = cap.read()
         except cv2.error:
@@ -391,6 +466,11 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
 
         if not ret or frame is None or frame.size == 0:
             cam["active"] = False
+            # desliga reader antigo antes de reconectar
+            if reader is not None:
+                reader.stop()
+                reader = None
+                cam.pop("_reader", None)
             try:
                 cap.release()
             except Exception:
@@ -405,7 +485,6 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
                 if cam["stop"]:
                     break
                 try:
-                    # Reconexão: IP camera usa RTSP URL, USB usa index+backend
                     if cam.get("ip"):
                         url = _build_rtsp_url(cam["ip"], cam.get("channel", 1))
                         cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
@@ -415,9 +494,7 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
                     if not cap.isOpened():
                         cap.release()
                         continue
-                    # Warmup longo — câmeras demoram a estabilizar
                     time.sleep(2)
-                    # Exigir pelo menos 3 de 5 frames válidos
                     good = 0
                     for _ in range(5):
                         r, _ = cap.read()
@@ -428,6 +505,10 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
                         cam["active"] = True
                         with cam["buffer_lock"]:
                             cam["buffer"].clear()
+                        # recria o reader após reconexão
+                        if is_ip:
+                            reader = _LatestFrameReader(cap)
+                            cam["_reader"] = reader
                         print(f"[cam{cam_id}] Reconectada! ({good}/5 frames OK)", flush=True)
                         break
                     cap.release()
@@ -436,7 +517,10 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
             continue
 
         now = time.time()
-        # Câmeras IP com resolução muito alta: redimensionar para 1280x720
+        # Câmeras IP em resolução alta: redimensiona pra 1280x720 — ALIVIA
+        # muito o JPEG encode e o decode downstream. Sem isso, com 4 câmeras
+        # 2K encodando a 30fps, o main loop fica CPU-bound e o reader entrega
+        # frames mais rápido do que processamos (dropped sobe).
         if is_ip and frame.shape[1] > 1280:
             frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
         _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
@@ -448,10 +532,25 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
             cutoff = now - BUFFER_SECONDS
             while cam["buffer"] and cam["buffer"][0][0] < cutoff:
                 cam["buffer"].popleft()
+
+        # Log periódico de stats (a cada 30s) — ajuda a diagnosticar delay
+        if is_ip and reader is not None and time.time() - last_stats_log > 30:
+            st = reader.stats()
+            with cam["buffer_lock"]:
+                buf_n = len(cam["buffer"])
+                buf_dur = (cam["buffer"][-1][0] - cam["buffer"][0][0]) if buf_n > 1 else 0.0
+            print(f"[cam{cam_id}] stats: reader lidos={st['read']} dropados={st['dropped']} "
+                  f"buffer={buf_n}f/{buf_dur:.1f}s", flush=True)
+            last_stats_log = time.time()
+
         elapsed = time.time() - t0
         if (s := interval - elapsed) > 0:
             time.sleep(s)
 
+    # shutdown
+    if reader is not None:
+        reader.stop()
+        cam.pop("_reader", None)
     try:
         cap.release()
     except Exception:
