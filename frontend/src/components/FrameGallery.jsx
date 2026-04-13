@@ -1,7 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
-
-const API = ''
+import { mediaUrl } from '../lib/api'
 
 function formatOffset(offset) {
   if (Math.abs(offset) < 0.1) return 'LIVE'
@@ -10,8 +9,8 @@ function formatOffset(offset) {
 
 function FrameThumb({ frame, isActive, onClick, camId }) {
   const src = Math.abs(frame.offset) < 0.1
-    ? `/snapshot/${camId}?t=${Date.now()}`
-    : `/api/frame/${camId}?offset=${frame.offset}`
+    ? mediaUrl(`/snapshot/${camId}?t=${Date.now()}`)
+    : mediaUrl(`/api/frame/${camId}?offset=${frame.offset}`)
 
   return (
     <motion.button

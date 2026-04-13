@@ -5,6 +5,7 @@ import { Camera, Wifi, WifiOff, ChevronRight, ScanLine, PlusCircle, Globe, Searc
 import { useHealth } from '../hooks/useReplayBuffer'
 import ScanCamerasModal from '../components/ScanCamerasModal'
 import AddIPCameraModal from '../components/AddIPCameraModal'
+import { mediaUrl } from '../lib/api'
 
 const LOCATION_NAMES = {
   '0': 'Quadra 01 - Frontal',
@@ -27,7 +28,7 @@ function SnapshotImg({ camId, alt }) {
 
   return (
     <img
-      src={`/snapshot/${camId}?t=${tick}`}
+      src={mediaUrl(`/snapshot/${camId}?t=${tick}`)}
       alt={alt}
       className="w-full h-full object-cover"
     />

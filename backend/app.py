@@ -834,8 +834,12 @@ def buy_credits():
 
 
 @app.route("/clips/<cam_id>/<filename>")
-@login_required
 def serve_clip(cam_id, filename):
+    """Serve o arquivo do clipe diretamente (sem auth).
+    O UUID hex de 12 chars do nome já funciona como token — só quem está
+    autenticado e listou os clipes via /api/clips/<cam_id> tem acesso aos
+    nomes. Tornar público permite <img src> e <video src> cross-origin
+    funcionarem sem precisar de CORS+crossOrigin="use-credentials"."""
     return send_from_directory(os.path.join(CLIPS_DIR, cam_id), filename)
 
 

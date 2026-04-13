@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Play, Pause, RotateCcw, Maximize2, Clock, Radio } from 'lucide-react'
+import { mediaUrl } from '../lib/api'
 
 function formatOffset(offset) {
   if (Math.abs(offset) < 0.1) return 'AO VIVO'
@@ -39,9 +40,9 @@ export default function VideoPlayer({
   const atLive = Math.abs(currentOffset) < 0.1
 
   // Decide image source
-  const streamSrc = camId ? `/stream/${camId}` : null
-  const replaySrc = camId ? `/api/replay_stream/${camId}` : null
-  const frameSrc  = camId && !atLive ? `/api/frame/${camId}?offset=${currentOffset}` : null
+  const streamSrc = camId ? mediaUrl(`/stream/${camId}`) : null
+  const replaySrc = camId ? mediaUrl(`/api/replay_stream/${camId}`) : null
+  const frameSrc  = camId && !atLive ? mediaUrl(`/api/frame/${camId}?offset=${currentOffset}`) : null
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {

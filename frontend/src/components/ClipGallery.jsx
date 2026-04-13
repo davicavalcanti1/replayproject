@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Film, Download, Play, X, Loader } from 'lucide-react'
 import { generateClip } from '../hooks/useReplayBuffer'
+import { mediaUrl } from '../lib/api'
 
 const DURATION_PRESETS = [
   { label: '10s', value: 10 },
@@ -273,7 +274,7 @@ function ClipModal({ clip, camId, onClose }) {
 
           <video
             ref={videoRef}
-            src={`/clips/${camId}/${clip.filename}`}
+            src={mediaUrl(`/clips/${camId}/${clip.filename}`)}
             controls
             autoPlay
             className="w-full"
@@ -344,7 +345,7 @@ function ClipModal({ clip, camId, onClose }) {
 }
 
 function ClipCard({ clip, camId, onPlay }) {
-  const thumbSrc = `/clips/${camId}/${clip.thumb}`
+  const thumbSrc = mediaUrl(`/clips/${camId}/${clip.thumb}`)
 
   return (
     <motion.div
