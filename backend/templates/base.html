@@ -3,132 +3,238 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
-  <title>{% block title %}Replay{% endblock %}</title>
+  <title>{% block title %}ReFrame{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Paleta ReFrame (igual ao frontend React) */
     :root {
-      --red: #e62b2b; --red-dark: #b71f1f; --red-glow: rgba(230,43,43,.15);
-      --bg: #0a0a0a; --surface: #141414; --surface-hover: #1a1a1a;
-      --border: #252525; --border-light: #333;
-      --text: #f2f2f2; --text-secondary: #aaa; --muted: #666;
-      --green: #4caf50; --orange: #ff9800; --blue: #2196f3;
-      --radius: 14px; --radius-sm: 10px;
+      --bg:            #0c0a1d;
+      --bg-2:          #110e24;
+      --surface:       #1a1535;
+      --surface-2:     #1e1940;
+      --surface-3:     #251f4a;
+      --border:        rgba(139,92,246,0.12);
+      --border-2:      rgba(139,92,246,0.22);
+      --purple:        #7c3aed;
+      --purple-bright: #a78bfa;
+      --purple-dim:    #5b21b6;
+      --blue:          #3b82f6;
+      --blue-bright:   #60a5fa;
+      --blue-dim:      #1d4ed8;
+      --cyan:          #22d3ee;
+      --green:         #22c55e;
+      --red:           #ef4444;
+      --orange:        #f59e0b;
+      --text:          #e8e0ff;
+      --muted:         #6b5f8a;
+      --muted-2:       #3d3560;
+      --radius:        14px;
+      --radius-sm:     10px;
     }
+
     html { scroll-behavior: smooth; }
     body {
-      background: var(--bg); color: var(--text);
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      min-height: 100svh; line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100svh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      /* gradiente radial "reframe-bg" idêntico ao React */
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 80%, rgba(99,50,180,0.25) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 80% 20%, rgba(59,130,246,0.15) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 80% at 50% 100%, rgba(80,40,160,0.20) 0%, transparent 50%),
+        var(--bg);
+      background-attachment: fixed;
     }
-    a { color: var(--red); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    a { color: var(--purple-bright); text-decoration: none; }
+    a:hover { color: var(--blue-bright); }
 
-    /* ── Navbar ── */
+    /* ── Navbar ─────────────────────────────────────────────────────────── */
     .navbar {
       position: sticky; top: 0; z-index: 100;
       display: flex; align-items: center; gap: 16px;
-      padding: 14px 24px;
-      background: rgba(10,10,10,.92); backdrop-filter: blur(12px);
+      padding: 12px 24px;
+      background: rgba(12,10,29,0.78); backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border);
     }
-    .nav-logo { font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em; cursor: pointer; }
-    .nav-logo span { color: var(--red); }
-    .nav-links { display: flex; gap: 6px; margin-left: 20px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-logo { width: 30px; height: 30px; display: block; }
+    .brand-text {
+      display: flex; flex-direction: column; line-height: 1;
+    }
+    .brand-name {
+      font-size: 1.05rem; font-weight: 800; letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .brand-name span { color: var(--purple-bright); }
+    .brand-sub {
+      font-size: .56rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .15em; margin-top: 2px;
+    }
+    .nav-links { display: flex; gap: 4px; margin-left: 20px; }
     .nav-links a {
-      color: var(--text-secondary); font-size: .85rem; font-weight: 500;
+      color: var(--muted); font-size: .82rem; font-weight: 500;
       padding: 6px 14px; border-radius: 8px; transition: all .15s;
     }
-    .nav-links a:hover, .nav-links a.active {
-      color: var(--text); background: var(--surface); text-decoration: none;
+    .nav-links a:hover {
+      color: var(--text); background: var(--surface-2);
+    }
+    .nav-links a.active {
+      color: var(--text); background: var(--surface-3);
+      box-shadow: inset 0 0 0 1px var(--border-2);
     }
     .nav-spacer { flex: 1; }
     .nav-credits {
-      display: flex; align-items: center; gap: 6px;
-      font-size: .82rem; font-weight: 600; color: var(--green);
-      padding: 5px 14px; border-radius: 20px;
-      background: rgba(76,175,80,.1); border: 1px solid rgba(76,175,80,.2);
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: .78rem; font-weight: 700; color: var(--green);
+      padding: 5px 12px; border-radius: 999px;
+      background: rgba(34,197,94,.12);
+      border: 1px solid rgba(34,197,94,.22);
     }
-    .nav-user { font-size: .82rem; color: var(--text-secondary); }
+    .nav-user {
+      font-size: .82rem; color: var(--text); font-weight: 500;
+      padding: 6px 10px; border-radius: 8px;
+      background: var(--surface-2); border: 1px solid var(--border);
+    }
     .nav-btn {
-      font-size: .8rem; font-weight: 600; color: var(--muted);
+      font-size: .78rem; font-weight: 600; color: var(--muted);
       padding: 6px 14px; border-radius: 8px;
       background: transparent; border: 1px solid var(--border);
       cursor: pointer; transition: all .15s; text-decoration: none;
     }
-    .nav-btn:hover { color: var(--text); border-color: var(--border-light); text-decoration: none; }
+    .nav-btn:hover {
+      color: var(--text); border-color: var(--border-2);
+      background: var(--surface-2);
+    }
 
-    /* ── Flash ── */
+    /* ── Flash ──────────────────────────────────────────────────────────── */
     .flash-container { padding: 12px 24px 0; max-width: 1240px; margin: 0 auto; }
     .flash {
       padding: 12px 18px; border-radius: var(--radius-sm);
       font-size: .88rem; margin-bottom: 8px; animation: slideDown .3s ease;
-      background: rgba(33,150,243,.12); color: var(--blue); border: 1px solid rgba(33,150,243,.2);
+      background: rgba(59,130,246,0.12);
+      color: var(--blue-bright);
+      border: 1px solid rgba(59,130,246,0.22);
     }
     @keyframes slideDown { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
 
-    /* ── Container ── */
+    /* ── Container ──────────────────────────────────────────────────────── */
     .container { max-width: 1200px; margin: 0 auto; padding: 24px 20px 48px; }
 
-    /* ── Buttons ── */
+    /* ── Buttons ────────────────────────────────────────────────────────── */
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 12px 24px; font-size: .92rem; font-weight: 700;
+      padding: 11px 22px; font-size: .9rem; font-weight: 700;
       border: none; border-radius: var(--radius-sm); cursor: pointer;
       transition: all .15s; -webkit-tap-highlight-color: transparent;
+      font-family: inherit;
     }
-    .btn-red { background: var(--red); color: #fff; }
-    .btn-red:hover { background: var(--red-dark); }
+    .btn-red { /* alias histórico — agora mapeia pro primário roxo */
+      background: linear-gradient(135deg, var(--purple-dim), var(--purple));
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(124,58,237,.35);
+    }
+    .btn-red:hover {
+      background: linear-gradient(135deg, var(--purple), var(--purple-bright));
+      box-shadow: 0 6px 20px rgba(124,58,237,.50);
+    }
     .btn-red:disabled { opacity: .45; cursor: not-allowed; }
-    .btn-outline { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }
-    .btn-outline:hover { color: var(--text); border-color: var(--border-light); background: var(--surface); }
-    .btn-green { background: var(--green); color: #fff; }
-    .btn-green:hover { background: #43a047; }
-    .btn-sm { padding: 8px 16px; font-size: .82rem; }
-
-    /* ── Card ── */
-    .card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); overflow: hidden; transition: border-color .2s;
+    .btn-blue {
+      background: linear-gradient(135deg, var(--blue-dim), var(--blue));
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(59,130,246,.35);
     }
-    .card:hover { border-color: var(--border-light); }
+    .btn-blue:hover {
+      background: linear-gradient(135deg, var(--blue), var(--blue-bright));
+      box-shadow: 0 6px 20px rgba(59,130,246,.50);
+    }
+    .btn-outline {
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border-2);
+    }
+    .btn-outline:hover {
+      color: var(--text); border-color: var(--purple-bright);
+      background: var(--surface-2);
+    }
+    .btn-green { background: var(--green); color: #fff; }
+    .btn-green:hover { background: #16a34a; }
+    .btn-sm { padding: 8px 16px; font-size: .8rem; }
+
+    /* ── Card ───────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color .2s, transform .12s;
+    }
+    .card:hover { border-color: var(--border-2); }
     .card-body { padding: 18px; }
 
-    /* ── Modal ── */
+    /* ── Modal ──────────────────────────────────────────────────────────── */
     .modal-overlay {
       display: none; position: fixed; inset: 0; z-index: 1000;
-      background: rgba(0,0,0,.75); backdrop-filter: blur(4px);
+      background: rgba(0,0,0,.78); backdrop-filter: blur(8px);
       align-items: center; justify-content: center;
     }
     .modal-overlay.active { display: flex; }
     .modal {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 32px;
-      max-width: 420px; width: 90%; animation: modalIn .2s ease;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: var(--radius);
+      padding: 30px;
+      max-width: 420px; width: 90%;
+      animation: modalIn .2s ease;
     }
     @keyframes modalIn { from { opacity:0; transform:scale(.95); } }
-    .modal h2 { font-size: 1.2rem; margin-bottom: 8px; }
-    .modal p { color: var(--text-secondary); font-size: .9rem; margin-bottom: 20px; }
+    .modal h2 { font-size: 1.15rem; margin-bottom: 8px; color: var(--text); font-weight: 700; }
+    .modal p  { color: var(--muted); font-size: .88rem; margin-bottom: 20px; }
 
-    /* ── Utilities ── */
+    /* ── Utilities ──────────────────────────────────────────────────────── */
     .text-muted { color: var(--muted); }
-    .text-sm { font-size: .82rem; }
-    .text-center { text-align: center; }
-    .mt-4 { margin-top: 16px; }
-    .w-full { width: 100%; }
+    .text-sm    { font-size: .82rem; }
+    .text-center{ text-align: center; }
+    .mt-4       { margin-top: 16px; }
+    .w-full     { width: 100%; }
 
     .status-msg {
       padding: 12px 18px; border-radius: var(--radius-sm);
-      font-size: .88rem; text-align: center; margin-bottom: 12px;
+      font-size: .86rem; text-align: center; margin-bottom: 12px;
       animation: slideDown .3s ease;
     }
-    .status-success { background: rgba(76,175,80,.12); color: var(--green); border: 1px solid rgba(76,175,80,.2); }
-    .status-error   { background: rgba(244,67,54,.12); color: #f44336; border: 1px solid rgba(244,67,54,.2); }
-    .status-loading { background: rgba(255,152,0,.12); color: var(--orange); border: 1px solid rgba(255,152,0,.2); }
+    .status-success {
+      background: rgba(34,197,94,.12); color: var(--green);
+      border: 1px solid rgba(34,197,94,.22);
+    }
+    .status-error {
+      background: rgba(239,68,68,.12); color: var(--red);
+      border: 1px solid rgba(239,68,68,.22);
+    }
+    .status-loading {
+      background: rgba(245,158,11,.12); color: var(--orange);
+      border: 1px solid rgba(245,158,11,.22);
+    }
 
+    /* ── Scrollbar ──────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb {
+      background: var(--surface-3); border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--purple-dim); }
+
+    /* ── Responsive ─────────────────────────────────────────────────────── */
     @media (max-width: 640px) {
-      .navbar { padding: 12px 16px; gap: 10px; flex-wrap: wrap; }
+      .navbar { padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
       .nav-links { display: none; }
       .container { padding: 16px 12px 32px; }
+      .brand-sub { display: none; }
     }
 
     {% block extra_css %}{% endblock %}
@@ -138,19 +244,43 @@
 
 {% if current_user %}
 <nav class="navbar">
-  <a class="nav-logo" href="/" style="text-decoration:none;color:var(--text)">RE<span>PLAY</span></a>
+  <a class="brand" href="/" style="text-decoration:none">
+    <!-- Logo R com gradiente igual ao frontend -->
+    <svg class="brand-logo" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="rg1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%"   stop-color="#7c3aed"/>
+          <stop offset="45%"  stop-color="#6366f1"/>
+          <stop offset="100%" stop-color="#22d3ee"/>
+        </linearGradient>
+        <linearGradient id="rg2" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%"   stop-color="#a78bfa"/>
+          <stop offset="100%" stop-color="#38bdf8"/>
+        </linearGradient>
+      </defs>
+      <path d="M16 56V8h16c8.837 0 16 5.373 16 12s-7.163 12-16 12H26l20 24"
+            stroke="url(#rg1)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M34 36l14 20" stroke="url(#rg2)" stroke-width="7" stroke-linecap="round"/>
+    </svg>
+    <div class="brand-text">
+      <span class="brand-name">Re<span>Frame</span></span>
+      <span class="brand-sub">Sistema de Replay</span>
+    </div>
+  </a>
+
   <div class="nav-links">
     {% if current_user.is_admin %}
       <a href="{{ url_for('admin_page') }}" class="{% if request.endpoint == 'admin_page' %}active{% endif %}">Dashboard</a>
-      <a href="{{ url_for('admin_users') }}" class="{% if request.endpoint == 'admin_users' %}active{% endif %}">Usuarios</a>
-      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Localidades</a>
+      <a href="{{ url_for('admin_users') }}" class="{% if request.endpoint == 'admin_users' %}active{% endif %}">Usuários</a>
+      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Câmeras</a>
     {% else %}
-      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Localidades</a>
+      <a href="{{ url_for('locations_page') }}" class="{% if request.endpoint in ['locations_page','location_detail'] %}active{% endif %}">Câmeras</a>
     {% endif %}
   </div>
+
   <div class="nav-spacer"></div>
   {% if not current_user.is_admin %}
-  <div class="nav-credits" id="nav-credits">&#9733; {{ current_user.credits }} creditos</div>
+  <div class="nav-credits" id="nav-credits">★ {{ current_user.credits }} créditos</div>
   {% endif %}
   <span class="nav-user">{{ current_user.name }}</span>
   <a href="{{ url_for('logout') }}" class="nav-btn">Sair</a>
