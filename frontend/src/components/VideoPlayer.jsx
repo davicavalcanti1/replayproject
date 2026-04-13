@@ -98,9 +98,6 @@ export default function VideoPlayer({
         />
       )}
 
-      {/* Scan lines */}
-      <div className="absolute inset-0 pointer-events-none scanlines" />
-
       {/* ── Badges ── */}
       {/* LIVE */}
       <AnimatePresence>
