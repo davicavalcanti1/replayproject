@@ -4,6 +4,7 @@ import threading
 import collections
 import subprocess
 import platform
+import tempfile
 import uuid
 from datetime import datetime
 from functools import wraps
@@ -17,6 +18,27 @@ except ImportError:
     pass
 
 os.environ["OPENCV_LOG_LEVEL"] = "ERROR"  # suprimir WARNs do OpenCV
+
+# ── Low-latency RTSP (câmeras IP) ────────────────────────────────────────────
+# Essas flags são passadas ao FFmpeg que o OpenCV usa internamente.
+# Precisam ser setadas ANTES do "import cv2" pra terem efeito.
+#   rtsp_transport=tcp  → TCP é mais confiável que UDP e com menor jitter em LAN
+#   fflags=nobuffer     → não bufferiza nada entre demux e decoder
+#   flags=low_delay     → prioriza latência sobre throughput
+#   reorder_queue_size=0→ não reordena pacotes (câmera local não precisa)
+#   max_delay=0         → zera o delay máximo do demuxer
+#   probesize/analyzeduration baixos → acelera o "boot" do stream
+os.environ.setdefault(
+    "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+    "rtsp_transport;tcp|"
+    "fflags;nobuffer|"
+    "flags;low_delay|"
+    "reorder_queue_size;0|"
+    "max_delay;0|"
+    "probesize;32|"
+    "analyzeduration;0|"
+    "stimeout;5000000"
+)
 
 import cv2
 import numpy as np
@@ -32,15 +54,36 @@ except ImportError:
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "replay-mvp-secret-2024")
+
+# ── Cross-site session cookies ──────────────────────────────────────────────
+# Quando o frontend vive em um domínio (EasyPanel) e o backend em outro
+# (Cloudflare Tunnel), o cookie de sessão precisa de SameSite=None + Secure
+# pra o browser aceitar enviar credenciais cross-site.
+# Local dev (SESSION_COOKIE_SAMESITE=Lax): funciona sem HTTPS.
+_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+_COOKIE_SECURE   = os.environ.get("SESSION_COOKIE_SECURE",   "0") in ("1", "true", "yes")
+app.config.update(
+    SESSION_COOKIE_SAMESITE=_COOKIE_SAMESITE,
+    SESSION_COOKIE_SECURE=_COOKIE_SECURE,
+    SESSION_COOKIE_HTTPONLY=True,
+)
+
+# Lista de origens permitidas pra CORS — mescla defaults locais + a env
+# FRONTEND_ORIGINS="https://replay.meudomin.io,https://admin.meudomin.io"
+_default_origins = [
+    "http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173",
+]
+_env_origins = [o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()]
+ALLOWED_ORIGINS = _default_origins + _env_origins
+
 if _CORS_AVAILABLE:
-    # supports_credentials=True allows Flask session cookies to be forwarded
-    # from the Vite dev server (localhost:5173) back to Flask (localhost:5000)
     CORS(app,
          supports_credentials=True,
-         origins=["http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173"],
+         origins=ALLOWED_ORIGINS,
          resources={r"/api/*": {}, r"/stream/*": {}, r"/snapshot/*": {},
-                    r"/health": {}, r"/generate-clip/*": {}, r"/clips/*": {}},
-         methods=["GET", "POST", "DELETE", "OPTIONS"])
+                    r"/health": {}, r"/generate-clip/*": {}, r"/clips/*": {},
+                    r"/botao": {}},
+         methods=["GET", "POST", "DELETE", "PUT", "OPTIONS"])
 
 # ── Config ───────────────────────────────────────────────────────────────────
 BUFFER_SECONDS = int(os.environ.get("BUFFER_SECONDS", 10))
@@ -118,10 +161,18 @@ def _build_rtsp_url(ip: str, channel: int = 1, subtype: int = 0) -> str:
 
 
 def _try_open_ip(ip: str, channel: int = 1) -> cv2.VideoCapture | None:
-    """Tenta conectar a uma câmera IP via RTSP. Usa substream (H.264, menor resolução)."""
-    # subtype=1 = substream (H.264, ~704x576 ou 640x480) — muito mais leve
-    # subtype=0 = mainstream (pode ser H.265, 2560x1440) — pesado demais pra streaming
-    for subtype in [1, 0]:
+    """Tenta conectar a uma câmera IP via RTSP.
+
+    Por padrão prefere MAINSTREAM (FPS completo, 25-30 fps) — o substream das
+    Intelbras vem tipicamente em 10-15fps, o que gera o efeito 'câmera lenta'
+    no replay. Se a largura de banda/CPU não suportarem mainstream, defina
+    PREFER_SUBSTREAM=1 pra inverter a preferência.
+    """
+    # subtype=0 = mainstream (H.264/H.265, resolução e FPS cheios)
+    # subtype=1 = substream (H.264, ~704x576 ou 640x480, FPS reduzido)
+    prefer_sub = os.environ.get("PREFER_SUBSTREAM", "0") in ("1", "true", "yes")
+    order = [1, 0] if prefer_sub else [0, 1]
+    for subtype in order:
         url = _build_rtsp_url(ip, channel, subtype=subtype)
         label = "substream" if subtype == 1 else "mainstream"
         print(f"  Conectando câmera IP {ip} canal {channel} ({label})...", flush=True)
@@ -317,9 +368,22 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
         t0 = time.time()
         try:
             if is_ip:
-                # Drenar frames velhos do buffer RTSP — grab() descarta, retrieve() pega o último
-                cap.grab()
-                ret, frame = cap.retrieve()
+                # Drenar agressivamente o buffer RTSP: grab() várias vezes pra
+                # descartar frames antigos e ficar SÓ com o mais recente.
+                # Isso elimina o delay acumulado (câmera IP passa a ser quase 0).
+                # Timeout implícito: 2 grabs suficientes pra acompanhar 30fps
+                # num loop que rota em ~interval; grabs extras simplesmente
+                # não farão nada porque o socket não terá frame novo.
+                grabbed_any = False
+                for _ in range(4):
+                    if cap.grab():
+                        grabbed_any = True
+                    else:
+                        break
+                if grabbed_any:
+                    ret, frame = cap.retrieve()
+                else:
+                    ret, frame = False, None
             else:
                 ret, frame = cap.read()
         except cv2.error:
@@ -523,16 +587,15 @@ def admin_required(f):
 
 @app.after_request
 def add_cors_headers(response):
-    """
-    When Vite dev-server proxy forwards requests, the session cookie is already
-    on the same effective origin. Still add permissive headers for direct API calls.
-    """
+    """Echo Access-Control-* headers quando o Origin da requisição está na
+    lista permitida (inclui FRONTEND_ORIGINS do .env)."""
     origin = request.headers.get("Origin", "")
-    if origin in ("http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173"):
+    if origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"]      = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Headers"]     = "Content-Type, X-Requested-With"
-        response.headers["Access-Control-Allow-Methods"]     = "GET, POST, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"]     = "Content-Type, X-Requested-With, Authorization"
+        response.headers["Access-Control-Allow-Methods"]     = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Vary"]                             = "Origin"
     return response
 
 
@@ -774,6 +837,130 @@ def buy_credits():
 @login_required
 def serve_clip(cam_id, filename):
     return send_from_directory(os.path.join(CLIPS_DIR, cam_id), filename)
+
+
+@app.route("/api/clips/<cam_id>/<clip_id>/trim", methods=["GET"])
+def trim_clip(cam_id, clip_id):
+    """Return a trimmed portion of a previously generated clip.
+
+    Query params:
+        start     (float, default 0)  — seconds from the beginning of the clip
+        duration  (float, default full) — seconds of trimmed output
+
+    If both params omitted (or duration >= source length), the full clip is
+    streamed without re-encoding.
+    """
+    # sanitize clip_id to avoid path traversal
+    safe_id = os.path.basename(clip_id)
+    if safe_id != clip_id or not safe_id.replace("-", "").replace("_", "").isalnum():
+        return jsonify({"error": "invalid_clip_id"}), 400
+
+    src_path = os.path.join(CLIPS_DIR, cam_id, f"{safe_id}.mp4")
+    if not os.path.exists(src_path):
+        return jsonify({"error": "clip_not_found"}), 404
+
+    try:
+        start    = max(0.0, float(request.args.get("start", 0)))
+        duration = float(request.args.get("duration", 0))
+    except ValueError:
+        return jsonify({"error": "invalid_params"}), 400
+
+    loc_name = _location_name(cam_id).replace(" ", "_").replace("—", "").replace("__", "_")
+    stamp    = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Descobre a duração real da fonte (via ffprobe, rápido e preciso).
+    # Se ffprobe indisponível, cai pro float do clips_db como fallback.
+    def _probe_duration(path: str) -> float:
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path],
+                stderr=subprocess.DEVNULL, timeout=5
+            )
+            return float(out.decode().strip())
+        except Exception:
+            return 0.0
+
+    src_duration = _probe_duration(src_path)
+    if src_duration <= 0:
+        # fallback: pega do clips_db
+        for info in clips_db.get(cam_id, []):
+            if info.get("id") == safe_id:
+                src_duration = float(info.get("duration", 0) or info.get("duration_s", 0))
+                break
+
+    # Requisição de arquivo inteiro (sem params OU duration cobre tudo): entrega
+    # o arquivo original direto, sem reprocessar.
+    wants_full = (
+        (start <= 0 and duration <= 0) or
+        (start <= 0 and src_duration > 0 and duration >= src_duration - 0.5)
+    )
+    if wants_full:
+        filename = f"replay_{loc_name}_{stamp}.mp4"
+        return send_from_directory(
+            os.path.join(CLIPS_DIR, cam_id), f"{safe_id}.mp4",
+            as_attachment=True, download_name=filename
+        )
+
+    # Se pediu duração > fonte, trunca
+    if src_duration > 0:
+        duration = min(duration, max(0.1, src_duration - start))
+
+    # trim with ffmpeg (re-encode for frame-accurate cut)
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp4", prefix=f"trim_{safe_id}_")
+    os.close(tmp_fd)
+
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-ss", f"{start:.3f}",
+        "-i", src_path,
+        "-t", f"{duration:.3f}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-an",
+        tmp_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+    except FileNotFoundError:
+        try: os.remove(tmp_path)
+        except Exception: pass
+        return jsonify({"error": "ffmpeg_not_installed"}), 500
+    except subprocess.TimeoutExpired:
+        try: os.remove(tmp_path)
+        except Exception: pass
+        return jsonify({"error": "ffmpeg_timeout"}), 504
+    except subprocess.CalledProcessError as e:
+        try: os.remove(tmp_path)
+        except Exception: pass
+        return jsonify({
+            "error":  "ffmpeg_failed",
+            "detail": e.stderr.decode(errors="ignore")[:500]
+        }), 500
+
+    def stream_and_cleanup():
+        try:
+            with open(tmp_path, "rb") as f:
+                while True:
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+        finally:
+            try: os.remove(tmp_path)
+            except Exception: pass
+
+    filename = f"replay_{loc_name}_{int(start):02d}s_{int(duration):02d}s_{stamp}.mp4"
+    return Response(
+        stream_and_cleanup(),
+        mimetype="video/mp4",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Clip-Trim":         f"start={start:.2f};duration={duration:.2f}",
+            "Cache-Control":       "no-store",
+        }
+    )
 
 
 # ── Admin routes ─────────────────────────────────────────────────────────────
@@ -1073,6 +1260,208 @@ def api_list_ip_cameras():
                 "active": cam["active"],
             })
     return jsonify(result)
+
+
+# ── Admin: controle de câmeras (pausar/retomar) ─────────────────────────────
+
+def _json_admin_only():
+    """Retorna 401/403 JSON em vez de redirect pros endpoints /api/admin/*.
+    Admin real precisa estar autenticado e marcado is_admin."""
+    if "user" not in session or session["user"] not in users_db:
+        return jsonify({"error": "unauthorized"}), 401
+    if not users_db[session["user"]].get("is_admin"):
+        return jsonify({"error": "forbidden"}), 403
+    return None
+
+
+@app.route("/api/admin/cameras", methods=["GET"])
+def api_admin_list_cameras():
+    """Lista TODAS as câmeras (USB + IP) com status detalhado — pra UI admin."""
+    err = _json_admin_only()
+    if err: return err
+
+    result = []
+    for cam_id, cam in cameras.items():
+        with cam["buffer_lock"]:
+            n = len(cam["buffer"])
+            dur = round(cam["buffer"][-1][0] - cam["buffer"][0][0], 1) if n > 1 else 0.0
+        result.append({
+            "cam_id":     cam_id,
+            "name":       cam.get("name", _location_name(cam_id)),
+            "label":      _location_name(cam_id),
+            "type":       "ip" if cam.get("ip") else "usb",
+            "ip":         cam.get("ip"),
+            "channel":    cam.get("channel"),
+            "index":      cam.get("index"),
+            "active":     bool(cam.get("active")),
+            "paused":     bool(cam.get("paused")),
+            "error":      cam.get("error"),
+            "frames":     n,
+            "duration_s": dur,
+        })
+    return jsonify({"cameras": result})
+
+
+@app.route("/api/admin/cameras/<cam_id>/pause", methods=["POST"])
+def api_admin_pause_camera(cam_id):
+    """Pausa a captura dessa câmera (thread encerra, buffer congelado).
+    A câmera permanece registrada — basta /resume pra voltar."""
+    err = _json_admin_only()
+    if err: return err
+    cam = cameras.get(cam_id)
+    if cam is None:
+        return jsonify({"error": "camera_not_found"}), 404
+    cam["stop"]   = True
+    cam["paused"] = True
+    cam["active"] = False
+    print(f"[admin] Câmera {cam_id} pausada", flush=True)
+    return jsonify({"ok": True, "cam_id": cam_id, "paused": True})
+
+
+@app.route("/api/admin/cameras/<cam_id>/resume", methods=["POST"])
+def api_admin_resume_camera(cam_id):
+    """Retoma uma câmera pausada — abre captura de novo e inicia thread."""
+    err = _json_admin_only()
+    if err: return err
+    cam = cameras.get(cam_id)
+    if cam is None:
+        return jsonify({"error": "camera_not_found"}), 404
+    if cam.get("active"):
+        return jsonify({"ok": True, "cam_id": cam_id, "already_active": True})
+
+    # Reabre o capture
+    if cam.get("ip"):
+        cap = _try_open_ip(cam["ip"], cam.get("channel", 1))
+    else:
+        cap, backend = _try_open(cam["index"])
+        if cap is not None:
+            cam["backend"] = backend
+    if cap is None:
+        cam["error"] = "reopen_failed"
+        return jsonify({"error": "reopen_failed"}), 500
+
+    cam["stop"]   = False
+    cam["paused"] = False
+    cam["error"]  = None
+    t = threading.Thread(target=capture_loop, args=(cam_id, cap), daemon=True)
+    t.start()
+    print(f"[admin] Câmera {cam_id} retomada", flush=True)
+    return jsonify({"ok": True, "cam_id": cam_id, "resumed": True})
+
+
+# ── Admin: controle de sistema (reiniciar / desligar / reboot PC) ───────────
+
+@app.route("/api/admin/system", methods=["GET"])
+def api_admin_system_info():
+    """Retorna status do sistema (CPU, RAM, uptime, disk) pra o dashboard."""
+    err = _json_admin_only()
+    if err: return err
+
+    info = {
+        "platform":  platform.system(),
+        "node":      platform.node(),
+        "release":   platform.release(),
+        "python":    platform.python_version(),
+        "cameras_total":  len(cameras),
+        "cameras_active": sum(1 for c in cameras.values() if c.get("active")),
+        "clips_total":    sum(len(v) for v in clips_db.values()),
+        "buffer_seconds": BUFFER_SECONDS,
+        "capture_fps":    CAPTURE_FPS,
+    }
+    # psutil é opcional — só usa se instalado
+    try:
+        import psutil
+        info["cpu_percent"]    = psutil.cpu_percent(interval=0.1)
+        info["ram_percent"]    = psutil.virtual_memory().percent
+        info["ram_used_mb"]    = round(psutil.virtual_memory().used / 1024 / 1024)
+        info["ram_total_mb"]   = round(psutil.virtual_memory().total / 1024 / 1024)
+        info["disk_percent"]   = psutil.disk_usage("/").percent
+        info["boot_time"]      = psutil.boot_time()
+        info["process_uptime"] = time.time() - psutil.Process(os.getpid()).create_time()
+    except ImportError:
+        info["psutil"] = "not_installed"
+    return jsonify(info)
+
+
+def _run_system_command(cmd_windows, cmd_linux, delay_seconds=5):
+    """Dispara um comando de sistema em background após delay (dá tempo da
+    resposta HTTP chegar no cliente)."""
+    def _delayed():
+        time.sleep(delay_seconds)
+        try:
+            if platform.system() == "Windows":
+                subprocess.Popen(cmd_windows, shell=False)
+            else:
+                subprocess.Popen(cmd_linux, shell=False)
+        except Exception as e:
+            print(f"[admin] Falha ao executar comando: {e}", flush=True)
+    threading.Thread(target=_delayed, daemon=True).start()
+
+
+@app.route("/api/admin/system/reboot", methods=["POST"])
+def api_admin_reboot():
+    """Reinicia o PC (Windows: shutdown /r; Linux: reboot)."""
+    err = _json_admin_only()
+    if err: return err
+    # exige confirmação explícita
+    if (request.get_json(silent=True) or {}).get("confirm") != "yes":
+        return jsonify({"error": "confirm_required"}), 400
+    _run_system_command(
+        ["shutdown", "/r", "/t", "5", "/c", "Replay MVP: reboot solicitado"],
+        ["sudo", "-n", "/sbin/reboot"]
+    )
+    return jsonify({"ok": True, "action": "reboot", "eta_s": 5})
+
+
+@app.route("/api/admin/system/shutdown", methods=["POST"])
+def api_admin_shutdown():
+    """Desliga o PC (Windows: shutdown /s; Linux: shutdown -h now)."""
+    err = _json_admin_only()
+    if err: return err
+    if (request.get_json(silent=True) or {}).get("confirm") != "yes":
+        return jsonify({"error": "confirm_required"}), 400
+    _run_system_command(
+        ["shutdown", "/s", "/t", "5", "/c", "Replay MVP: shutdown solicitado"],
+        ["sudo", "-n", "/sbin/shutdown", "-h", "now"]
+    )
+    return jsonify({"ok": True, "action": "shutdown", "eta_s": 5})
+
+
+@app.route("/api/admin/system/cancel-shutdown", methods=["POST"])
+def api_admin_cancel_shutdown():
+    """Aborta shutdown/reboot pendente (só funciona se ainda está no delay)."""
+    err = _json_admin_only()
+    if err: return err
+    try:
+        if platform.system() == "Windows":
+            subprocess.run(["shutdown", "/a"], check=False, capture_output=True, timeout=3)
+        else:
+            subprocess.run(["sudo", "-n", "/sbin/shutdown", "-c"], check=False, capture_output=True, timeout=3)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True, "action": "cancel"})
+
+
+@app.route("/api/admin/system/restart-backend", methods=["POST"])
+def api_admin_restart_backend():
+    """Reinicia o processo do backend (útil pra aplicar mudanças de config).
+    Requer supervisor externo (docker compose restart, systemd, pm2)."""
+    err = _json_admin_only()
+    if err: return err
+    # agenda saída em background — permite a resposta chegar antes
+    def _die():
+        time.sleep(1.0)
+        os._exit(0)  # força exit, supervisor reinicia
+    threading.Thread(target=_die, daemon=True).start()
+    return jsonify({"ok": True, "action": "restart-backend", "note": "supervisor deve reiniciar"})
+
+
+@app.route("/api/admin/ping", methods=["GET"])
+def api_admin_ping():
+    """Health check rápido — frontend usa pra saber se o edge está online."""
+    err = _json_admin_only()
+    if err: return err
+    return jsonify({"ok": True, "ts": time.time(), "node": platform.node()})
 
 
 # ── React Frontend extended API ──────────────────────────────────────────────

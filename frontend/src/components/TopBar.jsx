@@ -167,16 +167,28 @@ export default function TopBar() {
 
                   {/* Nav links */}
                   {user?.is_admin && (
-                    <Link
-                      to="/users"
-                      onClick={() => setMenuOpen(false)}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold no-underline transition-colors"
-                      style={{ color: 'var(--text)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <Shield size={12} style={{ color: 'var(--purple-bright)' }} /> Usuários
-                    </Link>
+                    <>
+                      <Link
+                        to="/admin"
+                        onClick={() => setMenuOpen(false)}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold no-underline transition-colors"
+                        style={{ color: 'var(--text)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <Shield size={12} style={{ color: 'var(--purple-bright)' }} /> Admin · Câmeras & Sistema
+                      </Link>
+                      <Link
+                        to="/users"
+                        onClick={() => setMenuOpen(false)}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold no-underline transition-colors"
+                        style={{ color: 'var(--text)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <Shield size={12} style={{ color: 'var(--purple-bright)' }} /> Usuários
+                      </Link>
+                    </>
                   )}
 
                   {/* Logout */}

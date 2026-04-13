@@ -8,8 +8,8 @@ services:
       - /dev/video2:/dev/video2
     restart: unless-stopped
     environment:
-      - BUFFER_SECONDS=10
-      - CAPTURE_FPS=20
+      - BUFFER_SECONDS=60
+      - CAPTURE_FPS=30
       - CAMERA_INDICES=0,2
 
   frontend:

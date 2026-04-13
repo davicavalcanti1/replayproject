@@ -7,6 +7,7 @@ import Cameras from './pages/Cameras'
 import CameraDetail from './pages/CameraDetail'
 import Settings from './pages/Settings'
 import Users from './pages/Users'
+import Admin from './pages/Admin'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth()
@@ -73,6 +74,12 @@ export default function App() {
           <Route path="/users" element={
             <ProtectedRoute adminOnly>
               <Layout><Users /></Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/admin" element={
+            <ProtectedRoute adminOnly>
+              <Layout><Admin /></Layout>
             </ProtectedRoute>
           } />
 
