@@ -335,25 +335,27 @@ def _validate_new_camera(cap, idx: int) -> bool:
 
 
 class _LatestFrameReader:
-    """Thread dedicada a ler frames da câmera IP o mais rápido possível
-    e guardar SEMPRE só o frame mais recente. Elimina o acúmulo de delay
-    que acontece quando o consumidor (capture_loop) é mais lento que
-    a taxa de chegada do stream RTSP.
+    """Thread dedicada a ler frames da câmera IP e manter SEMPRE o último
+    frame válido disponível. Elimina o acúmulo de delay.
 
-    O truque é simples mas mata o delay por completo: enquanto a thread
-    estiver fazendo cap.read() continuamente, o socket RTSP é drenado
-    frame a frame sem pausa. Quem consome via .latest() pega o que tiver
-    de mais fresco no momento — se ele consome lento, o reader descarta
-    os antigos sozinho.
+    O main loop chama .latest() a qualquer momento e recebe o frame mais
+    recente que o reader conseguiu ler. Se main consumir mais rápido que
+    o stream chega, recebe o MESMO frame várias vezes (main detecta via
+    identidade e pula). Se main for mais lento, frames antigos são
+    simplesmente sobrescritos (sem acumular delay).
+
+    Offline é só se passar > OFFLINE_THRESHOLD_S sem frame novo.
     """
+    OFFLINE_THRESHOLD_S = 8.0
+
     def __init__(self, cap):
         self.cap = cap
         self._lock = threading.Lock()
-        self._ret = False
         self._frame = None
+        self._frame_id = 0           # incrementa a cada leitura nova
+        self._last_good_ts = time.time()
         self._frames_read = 0
         self._frames_dropped = 0
-        self._last_read_ts = 0.0
         self._stop = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -364,34 +366,40 @@ class _LatestFrameReader:
                 ret, frame = self.cap.read()
             except cv2.error:
                 ret, frame = False, None
-            now = time.time()
-            with self._lock:
-                if self._frame is not None and ret:
-                    # frame anterior ainda não foi consumido — descartamos
-                    self._frames_dropped += 1
-                self._ret   = ret
-                self._frame = frame
-                self._last_read_ts = now
-                if ret:
+
+            if ret and frame is not None and frame.size > 0:
+                with self._lock:
+                    # contabiliza drop se main ainda não pegou o anterior
+                    if self._frame is not None and self._frame_id > 0:
+                        self._frames_dropped += 1
+                    self._frame = frame
+                    self._frame_id += 1
+                    self._last_good_ts = time.time()
                     self._frames_read += 1
-            if not ret:
-                # evita tight-loop quando a câmera caiu
+            else:
+                # Leitura falhou — backoff leve pra não queimar CPU.
+                # Se persistir por OFFLINE_THRESHOLD_S, main detecta e
+                # dispara reconexão.
                 time.sleep(0.1)
 
     def latest(self):
-        """Pega o frame mais recente e marca como consumido.
-        Retorna (ret, frame) — frame pode ser None se ainda não tem."""
+        """Devolve (online, frame_id, frame).
+        - online: True enquanto o reader conseguiu frame dentro do
+          threshold (não dispara reconexão por transient).
+        - frame_id: incrementa a cada frame novo — main compara com
+          o último frame_id consumido pra evitar re-processar duplicata.
+        - frame: a imagem ndarray (pode ser o mesmo objeto de chamadas
+          anteriores se não chegou frame novo)."""
         with self._lock:
-            ret, frame = self._ret, self._frame
-            self._frame = None  # marca como consumido
-            return ret, frame
+            online = (time.time() - self._last_good_ts) < self.OFFLINE_THRESHOLD_S
+            return online, self._frame_id, self._frame
 
     def stats(self):
         with self._lock:
             return {
                 "read":     self._frames_read,
                 "dropped":  self._frames_dropped,
-                "last_ts":  self._last_read_ts,
+                "last_ts":  self._last_good_ts,
             }
 
     def stop(self):
@@ -431,34 +439,37 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
     if is_ip:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         reader = _LatestFrameReader(cap)
-        cam["_reader"] = reader  # guarda pra shutdown e stats
+        cam["_reader"] = reader
         # warmup — aguarda o reader pegar algo
-        deadline = time.time() + 3.0
+        deadline = time.time() + 5.0
         while time.time() < deadline:
-            r, f = reader.latest()
-            if r and f is not None:
+            online, fid, f = reader.latest()
+            if online and fid > 0:
                 break
-            time.sleep(0.05)
+            time.sleep(0.1)
 
     last_stats_log = time.time()
+    last_frame_id  = 0   # pro IP: última frame_id que processamos
 
     while not cam["stop"]:
         t0 = time.time()
+        ret = False
+        frame = None
         try:
             if is_ip:
-                # Pega o frame mais recente do reader (não bloqueia).
-                ret, frame = reader.latest()
-                if not ret or frame is None:
-                    # Ainda não tem frame novo desde o último consumo.
-                    # Pode ser porque o loop é mais rápido que o stream,
-                    # ou a câmera caiu. Se for só rapidez, dorme um pouco
-                    # e tenta de novo sem marcar como erro.
-                    last_read = reader.stats()["last_ts"]
-                    if last_read > 0 and time.time() - last_read < 2.0:
-                        time.sleep(interval * 0.5)
-                        continue
-                    # passou muito tempo sem frame → tratar como desconexão
+                online, frame_id, f = reader.latest()
+                if not online:
+                    # > OFFLINE_THRESHOLD_S sem frame → tratar como disconnect
                     ret = False
+                elif frame_id == last_frame_id or f is None:
+                    # sem frame novo ainda — espera um pouco e volta,
+                    # SEM marcar como offline
+                    time.sleep(max(0.01, interval * 0.3))
+                    continue
+                else:
+                    last_frame_id = frame_id
+                    frame = f
+                    ret = True
             else:
                 ret, frame = cap.read()
         except cv2.error:
@@ -505,10 +516,11 @@ def _capture_loop_inner(cam_id, cam, cap, idx, backend, is_ip, interval):
                         cam["active"] = True
                         with cam["buffer_lock"]:
                             cam["buffer"].clear()
-                        # recria o reader após reconexão
+                        # recria o reader após reconexão (IP apenas)
                         if is_ip:
                             reader = _LatestFrameReader(cap)
                             cam["_reader"] = reader
+                            last_frame_id = 0  # reseta pro novo reader
                         print(f"[cam{cam_id}] Reconectada! ({good}/5 frames OK)", flush=True)
                         break
                     cap.release()
